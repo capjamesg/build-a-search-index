@@ -1,17 +1,18 @@
 from lark import Lark, Transformer
-from lark.visitors import Interpreter, Visitor, Visitor_Recursive
-from .search_engine import search, documents_by_title
+from app import search, documents_by_title
 
 grammar = """
 start: query
-query: ("(" WORD (OPERATOR WORD)* ")") | (query OPERATOR query)* | WORD (WORD)*
+query: ("(" WORD (OPERATOR WORD)* ")") | (query OPERATOR query)* | WORD
 OPERATOR: "AND NOT" | "AND" | "OR"
 
-WORD: /[a-zA-Z0-9_]+/
+WORD: /[a-z0-9_ ]+/
 
+%import common.CNAME
 %import common.WS
 %ignore WS
 """
+
 
 parser = Lark(grammar)
 
@@ -19,6 +20,10 @@ DOCUMENT_SEARCH_KEY = "title"
 
 
 class ExpressionInterpreter(Transformer):
+    """
+    Reads a parsed Lark tree, evaluates each part of the tree, and returns
+    documents that match the description in the tree.
+    """
     def query(self, items):
         if len(items) > 1:
             if isinstance(items[0], str):
@@ -42,14 +47,15 @@ class ExpressionInterpreter(Transformer):
 
             return result
         elif len(items) == 1 and isinstance(items[0], str):
+            print("Processed single string value", items[0], "\n")
             return search(items[0])
         else:
             return items[0]
 
-    def WORD(self, items):
-        return items
-
     def OPERATOR(self, token):
+        """
+        Transforms OPERATOR tokens into their respective Python set functions.
+        """
         if token == "AND":
             return set.intersection
         elif token == "OR":
@@ -58,11 +64,32 @@ class ExpressionInterpreter(Transformer):
             return set.difference
 
     def start(self, items):
+        """
+        Lark trees need an entry point which serves as the root of the tree.
+
+        The entry point for the transformer is `start`.
+
+        This function tells the transformer that `start` should be treated as a query.
+        """
         return self.query(items)
 
+query = "(I love AND still) OR kiss"
 
-result = parser.parse("(I AND NOT still)")
+def preprocess(query):
+    """
+    Preprocesses the query to make it compatible with the grammar.
+    """
+    RESERVED_TERMS = ["AND", "OR"]
+
+    terms = query.split()
+    terms = [t.lower() if t not in RESERVED_TERMS else t for t in terms]
+
+    return " ".join(terms)
+
+result = parser.parse(preprocess(query))
+
+print(result.pretty())
 
 ast = ExpressionInterpreter().transform(result)
 
-print([doc["title"] for doc in ast])
+print([doc[DOCUMENT_SEARCH_KEY] for doc in ast])
